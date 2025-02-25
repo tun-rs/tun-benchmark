@@ -1,5 +1,9 @@
 # [tun-rs](https://github.com/tun-rs/tun-rs) Performance Test Report
 
+Testing method: Utilize a TUN proxy for traffic.
+
+Data flow path: TcpStream.write -> tun.recv -> tun.send -> TcpStream.read
+
 ## Linux
 
 machine: ubuntu 24C/32G
