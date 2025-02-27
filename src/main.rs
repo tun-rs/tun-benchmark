@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{io, thread};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::Receiver;
@@ -10,12 +10,15 @@ const SRC_IP: Ipv4Addr = Ipv4Addr::new(10, 0, 1, 2);
 const DST_IP_A: Ipv4Addr = Ipv4Addr::new(10, 0, 1, 3);
 const DST_IP_B: Ipv4Addr = Ipv4Addr::new(10, 0, 1, 4);
 const TEST_DATA_SIZE: usize = 1000 * 1024 * 1024; // 1000MB
+mod rust_tun_init;
 mod tun_rs_init;
 #[derive(Copy, Clone)]
 pub enum TunType {
     TunRsStandard,
     TunRsChannelStandard,
     TunRsSyncStandard,
+    RustTunStandard,
+    RustTunChannelStandard,
     #[cfg(target_os = "linux")]
     TunRsTSO,
     #[cfg(target_os = "linux")]
@@ -26,15 +29,17 @@ pub enum TunType {
 impl Debug for TunType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            TunType::TunRsStandard => "tun-rs: standard, recv/send",
-            TunType::TunRsChannelStandard => "tun-rs: use channel, recv/send",
-            TunType::TunRsSyncStandard => "tun-rs: sync-standard, recv/send",
+            TunType::TunRsStandard => "tun-rs(https://crates.io/crates/tun-rs): standard, recv/send",
+            TunType::TunRsChannelStandard => "tun-rs(https://crates.io/crates/tun-rs): use channel, recv/send",
+            TunType::TunRsSyncStandard => "tun-rs(https://crates.io/crates/tun-rs): sync-standard, recv/send",
             #[cfg(target_os = "linux")]
-            TunType::TunRsTSO => "tun-rs: use tso, recv_multiple/send_multiple",
+            TunType::TunRsTSO => "tun-rs(https://crates.io/crates/tun-rs): use tso, recv_multiple/send_multiple",
             #[cfg(target_os = "linux")]
-            TunType::TunRsChannelTSO => "tun-rs: use tso+channel, recv_multiple/send_multiple",
+            TunType::TunRsChannelTSO => "tun-rs(https://crates.io/crates/tun-rs): use tso+channel, recv_multiple/send_multiple",
             #[cfg(target_os = "linux")]
-            TunType::TunRsMultiQueue => "tun-rs: use multi-queue, recv/send",
+            TunType::TunRsMultiQueue => "tun-rs(https://crates.io/crates/tun-rs): use multi-queue, recv/send",
+            TunType::RustTunStandard => "rust-tun(https://crates.io/crates/tun): recv/send",
+            TunType::RustTunChannelStandard =>  "rust-tun(https://crates.io/crates/tun): use channel, recv/send",
         };
         f.write_str(str)
     }
@@ -43,6 +48,11 @@ impl Debug for TunType {
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+    // println!("=============================================================================================");
+    // benchmark(3, TunType::RustTunStandard).await;
+    // benchmark(3, TunType::RustTunChannelStandard).await;
+    // println!("=============================================================================================");
+
     benchmark(3, TunType::TunRsStandard).await;
     benchmark(3, TunType::TunRsChannelStandard).await;
     #[cfg(target_os = "linux")]
@@ -98,6 +108,12 @@ pub async fn tun_main(tun_type: TunType, mut r: Receiver<()>) {
             TunType::TunRsMultiQueue => {
                 Box::pin(tun_rs_init::start_multi_queue_async()).await;
             }
+            TunType::RustTunStandard => {
+                Box::pin(rust_tun_init::start_async()).await;
+            }
+            TunType::RustTunChannelStandard => {
+                Box::pin(rust_tun_init::start_channel_async()).await;
+            }
         }
     });
     r.recv().await;
@@ -117,10 +133,12 @@ pub fn test_batch(n: usize, name: String) {
 #[tokio::main]
 pub async fn test_main() {
     tokio::time::sleep(Duration::from_secs(2)).await;
-    speed_test().await;
+    if let Err(e) = speed_test().await {
+        log::error!("speed_test {e:?}")
+    }
 }
 
-pub async fn speed_test() {
+pub async fn speed_test() -> io::Result<()> {
     let tcp_listener = TcpListener::bind(format!("{SRC_IP}:8080")).await.unwrap();
     let (s, mut r) = tokio::sync::mpsc::channel::<()>(1);
     let h = tokio::spawn(async move {
@@ -153,15 +171,13 @@ pub async fn speed_test() {
             });
         }
     });
-    let mut tcp_stream = TcpStream::connect(format!("{DST_IP_A}:8080"))
-        .await
-        .unwrap();
+    let mut tcp_stream = TcpStream::connect(format!("{DST_IP_A}:8080")).await?;
     let data = vec![0u8; 8192]; // 8KB
     let mut sent_bytes = 0;
     let start_time = Instant::now();
 
     while sent_bytes < TEST_DATA_SIZE {
-        let n = tcp_stream.write(&data).await.unwrap();
+        let n = tcp_stream.write(&data).await?;
         sent_bytes += n;
     }
     drop(tcp_stream);
@@ -176,4 +192,5 @@ pub async fn speed_test() {
     );
     r.recv().await.unwrap();
     h.abort();
+    Ok(())
 }

@@ -8,7 +8,7 @@ tokio = { version = "1", features = ["full"] }
 
 log = "0.4"
 env_logger = "0.11"
-tun-rs = {version = "2.0.5",features = ["async"]}
-
+tun-rs = { version = "2.0", features = ["async"] }
+tun = { version = "0.7", features = ["async"] }
 pnet_packet = "0.35.0"
 bytes = "1.10.0"
