@@ -1,3 +1,10 @@
+# 🔄 Repository Moved
+
+This project has been **moved** to a new location:
+
+👉 **[https://github.com/tun-rs/tun-benchmark2](https://github.com/tun-rs/tun-benchmark2)**
+
+
 # [tun-rs](https://github.com/tun-rs/tun-rs) Performance Test Report
 
 Testing method: Utilize a TUN proxy for traffic.
